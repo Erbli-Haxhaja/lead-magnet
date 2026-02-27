@@ -67,9 +67,7 @@ export default function AdminLayout({
         {/* Logo */}
         <div className="p-6 border-b border-htd-card-border">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-htd-purple to-htd-purple-dark flex items-center justify-center">
-              <span className="text-white font-bold text-sm">H</span>
-            </div>
+            <img src="/htd_logo.png" alt="HTD Solutions" className="w-9 h-9 rounded-lg object-contain" />
             <div>
               <p className="text-xs text-htd-purple-light font-semibold tracking-wider uppercase">
                 HTD Solutions

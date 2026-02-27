@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,19 @@ export function LeadsTable({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState<"all" | "selected" | null>(null);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest("[data-export-menu]")) {
+        setShowExportMenu(null);
+      }
+    };
+    document.addEventListener("click", handler, { capture: true });
+    return () => document.removeEventListener("click", handler, { capture: true });
+  }, [showExportMenu]);
 
   const filtered = useMemo(() => {
     return leads.filter((lead) => {
@@ -82,25 +95,41 @@ export function LeadsTable({
     setSelected(newSelected);
   }
 
-  function exportCSV(onlySelected: boolean) {
+  function exportCSV(onlySelected: boolean, mode: "all-data" | "emails-only") {
     const data = onlySelected
       ? filtered.filter((l) => selected.has(l.id))
       : filtered;
-    const headers = ["Email", "Source Document", "Captured At"];
-    const rows = data.map((lead) => [
-      `"${lead.email}"`,
-      `"${lead.documentTitle || lead.source || ""}"`,
-      new Date(lead.capturedAt).toISOString(),
-    ]);
 
-    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    // Deduplicate by email
+    const seen = new Set<string>();
+    const unique = data.filter((lead) => {
+      const email = lead.email.toLowerCase();
+      if (seen.has(email)) return false;
+      seen.add(email);
+      return true;
+    });
+
+    let csv: string;
+    if (mode === "emails-only") {
+      csv = ["Email", ...unique.map((l) => `"${l.email}"`)].join("\n");
+    } else {
+      const headers = ["Email", "Source Document", "Captured At"];
+      const rows = unique.map((lead) => [
+        `"${lead.email}"`,
+        `"${lead.documentTitle || lead.source || ""}"`,
+        new Date(lead.capturedAt).toISOString(),
+      ]);
+      csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    }
+
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `leads-${onlySelected ? "selected-" : ""}${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `leads-${mode === "emails-only" ? "emails-" : ""}${onlySelected ? "selected-" : ""}${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setShowExportMenu(null);
   }
 
   function handleDelete() {
@@ -126,27 +155,48 @@ export function LeadsTable({
             {selected.size} lead{selected.size !== 1 ? "s" : ""} selected
           </span>
           <div className="h-4 w-px bg-htd-purple/20" />
-          <Button
-            onClick={() => exportCSV(true)}
-            variant="ghost"
-            size="sm"
-            className="text-htd-purple-light hover:text-white hover:bg-htd-purple/20 h-8"
-          >
-            <svg
-              className="w-4 h-4 mr-1.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="relative" data-export-menu>
+            <Button
+              onClick={() => setShowExportMenu(showExportMenu === "selected" ? null : "selected")}
+              variant="ghost"
+              size="sm"
+              className="text-htd-purple-light hover:text-white hover:bg-htd-purple/20 h-8"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
-            Export Selected
-          </Button>
+              <svg
+                className="w-4 h-4 mr-1.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Export Selected
+              <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </Button>
+            {showExportMenu === "selected" && (
+              <div className="absolute top-full left-0 mt-1 w-48 bg-htd-card border border-htd-card-border rounded-lg shadow-xl z-50 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                <button
+                  onClick={() => exportCSV(true, "all-data")}
+                  className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Export all data
+                </button>
+                <button
+                  onClick={() => exportCSV(true, "emails-only")}
+                  className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Export only emails
+                </button>
+              </div>
+            )}
+          </div>
           {!showDeleteConfirm ? (
             <Button
               onClick={() => setShowDeleteConfirm(true)}
@@ -269,27 +319,48 @@ export function LeadsTable({
           ))}
         </div>
 
-        <Button
-          onClick={() => exportCSV(false)}
-          variant="outline"
-          size="sm"
-          className="border-htd-card-border text-muted-foreground hover:text-white hover:bg-white/5 ml-auto"
-        >
-          <svg
-            className="w-4 h-4 mr-2"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="relative ml-auto" data-export-menu>
+          <Button
+            onClick={() => setShowExportMenu(showExportMenu === "all" ? null : "all")}
+            variant="outline"
+            size="sm"
+            className="border-htd-card-border text-muted-foreground hover:text-white hover:bg-white/5"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-            />
-          </svg>
-          Export All
-        </Button>
+            <svg
+              className="w-4 h-4 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
+            </svg>
+            Export
+            <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </Button>
+          {showExportMenu === "all" && (
+            <div className="absolute top-full right-0 mt-1 w-48 bg-htd-card border border-htd-card-border rounded-lg shadow-xl z-50 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+              <button
+                onClick={() => exportCSV(false, "all-data")}
+                className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Export all data
+              </button>
+              <button
+                onClick={() => exportCSV(false, "emails-only")}
+                className="w-full text-left px-3 py-2 text-sm text-muted-foreground hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Export only emails
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Table */}
