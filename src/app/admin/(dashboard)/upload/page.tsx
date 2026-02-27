@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { uploadDocument } from "../actions";
+import { uploadDocument, getSenders, getEmailTemplates } from "../actions";
 import { toast } from "sonner";
+
+type Sender = { id: string; name: string; email: string };
+type EmailTemplate = { id: string; name: string; subject: string };
 
 export default function UploadPage() {
   const router = useRouter();
@@ -16,6 +19,23 @@ export default function UploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [sendersList, setSendersList] = useState<Sender[]>([]);
+  const [templatesList, setTemplatesList] = useState<EmailTemplate[]>([]);
+  const [selectedSenderId, setSelectedSenderId] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
+  useEffect(() => {
+    async function loadOptions() {
+      const [sendersRes, templatesRes] = await Promise.all([
+        getSenders(),
+        getEmailTemplates(),
+      ]);
+      if (sendersRes.data) setSendersList(sendersRes.data);
+      if (templatesRes.data) setTemplatesList(templatesRes.data);
+    }
+    loadOptions();
+  }, []);
 
   function handleDrag(e: React.DragEvent) {
     e.preventDefault();
@@ -58,6 +78,8 @@ export default function UploadPage() {
     setLoading(true);
     const formData = new FormData(e.currentTarget);
     formData.set("file", selectedFile);
+    if (selectedSenderId) formData.set("senderId", selectedSenderId);
+    if (selectedTemplateId) formData.set("emailTemplateId", selectedTemplateId);
 
     const result = await uploadDocument(formData);
 
@@ -111,6 +133,46 @@ export default function UploadPage() {
                 rows={3}
                 className="bg-[#0a0e1a] border-htd-card-border focus:border-htd-purple resize-none"
               />
+            </div>
+
+            {/* Sender & Email Template selectors */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Sender</Label>
+                <select
+                  value={selectedSenderId}
+                  onChange={(e) => setSelectedSenderId(e.target.value)}
+                  className="w-full h-10 rounded-md border border-htd-card-border bg-[#0a0e1a] px-3 text-sm text-white focus:border-htd-purple focus:outline-none"
+                >
+                  <option value="">Default (env variable)</option>
+                  {sendersList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} &lt;{s.email}&gt;
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Who the email will be sent from
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Email Template</Label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="w-full h-10 rounded-md border border-htd-card-border bg-[#0a0e1a] px-3 text-sm text-white focus:border-htd-purple focus:outline-none"
+                >
+                  <option value="">Default built-in template</option>
+                  {templatesList.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  The email body sent with the document
+                </p>
+              </div>
             </div>
 
             {/* File Upload */}

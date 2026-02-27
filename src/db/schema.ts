@@ -17,6 +17,25 @@ export const admins = pgTable("admins", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── Senders ─────────────────────────────────────────────────
+export const senders = pgTable("senders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Email Templates ─────────────────────────────────────────
+export const emailTemplates = pgTable("email_templates", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  subject: varchar("subject", { length: 500 }).notNull(),
+  bodyFormat: varchar("body_format", { length: 10 }).default("html").notNull(), // 'html' | 'text'
+  htmlBody: text("html_body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ─── Documents ───────────────────────────────────────────────
 export const documents = pgTable(
   "documents",
@@ -30,6 +49,13 @@ export const documents = pgTable(
     fileType: varchar("file_type", { length: 100 }).notNull(),
     fileSize: integer("file_size").notNull(), // bytes
     isActive: boolean("is_active").default(true).notNull(),
+    senderId: uuid("sender_id").references(() => senders.id, {
+      onDelete: "set null",
+    }),
+    emailTemplateId: uuid("email_template_id").references(
+      () => emailTemplates.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("documents_slug_idx").on(table.slug)]
@@ -86,6 +112,10 @@ export const documentViews = pgTable(
 // ─── Types ───────────────────────────────────────────────────
 export type Admin = typeof admins.$inferSelect;
 export type NewAdmin = typeof admins.$inferInsert;
+export type Sender = typeof senders.$inferSelect;
+export type NewSender = typeof senders.$inferInsert;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 export type Lead = typeof leads.$inferSelect;

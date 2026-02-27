@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { leads, emailSends, documents } from "@/db/schema";
+import { leads, emailSends, documents, senders, emailTemplates } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { resend } from "@/lib/resend";
 import { getFromR2 } from "@/lib/r2";
@@ -28,6 +28,26 @@ function checkRateLimit(key: string, maxAttempts: number = 3, windowMs: number =
   return true;
 }
 
+/**
+ * Replaces placeholders like {{document_title}}, {{document_description}},
+ * {{sender_name}}, {{sender_email}} in a template string.
+ */
+function replacePlaceholders(
+  template: string,
+  vars: {
+    documentTitle: string;
+    documentDescription: string | null;
+    senderName: string;
+    senderEmail: string;
+  }
+): string {
+  return template
+    .replace(/\{\{document_title\}\}/g, vars.documentTitle)
+    .replace(/\{\{document_description\}\}/g, vars.documentDescription || "")
+    .replace(/\{\{sender_name\}\}/g, vars.senderName)
+    .replace(/\{\{sender_email\}\}/g, vars.senderEmail);
+}
+
 export async function submitLeadEmail(slug: string, email: string) {
   // Simple regex validation
   if (!email || !EMAIL_REGEX.test(email)) {
@@ -50,6 +70,57 @@ export async function submitLeadEmail(slug: string, email: string) {
     return { error: "This document is no longer available" };
   }
 
+  // Load associated sender (if any)
+  let senderFrom =
+    process.env.RESEND_FROM_EMAIL || "HTD Solutions <info@htd.solutions>";
+  let senderName = "HTD Solutions";
+  let senderEmail = "info@htd.solutions";
+
+  if (doc.senderId) {
+    const [sender] = await db
+      .select()
+      .from(senders)
+      .where(eq(senders.id, doc.senderId))
+      .limit(1);
+
+    if (sender) {
+      senderFrom = `${sender.name} <${sender.email}>`;
+      senderName = sender.name;
+      senderEmail = sender.email;
+    }
+  }
+
+  // Load associated email template (if any)
+  let emailSubject = `Your free resource: ${doc.title}`;
+  let emailHtml = generateDefaultEmailHtml(doc.title, doc.description);
+
+  if (doc.emailTemplateId) {
+    const [template] = await db
+      .select()
+      .from(emailTemplates)
+      .where(eq(emailTemplates.id, doc.emailTemplateId))
+      .limit(1);
+
+    if (template) {
+      const vars = {
+        documentTitle: doc.title,
+        documentDescription: doc.description,
+        senderName,
+        senderEmail,
+      };
+      emailSubject = replacePlaceholders(template.subject, vars);
+
+      if (template.bodyFormat === "text") {
+        // "text" mode stores simple formatted HTML (bold, italic, links, etc.)
+        // Wrap it in the clean email shell
+        const bodyHtml = replacePlaceholders(template.htmlBody, vars);
+        emailHtml = wrapPlainTextInHtml(bodyHtml);
+      } else {
+        emailHtml = replacePlaceholders(template.htmlBody, vars);
+      }
+    }
+  }
+
   try {
     // Upsert lead
     const [lead] = await db
@@ -70,10 +141,10 @@ export async function submitLeadEmail(slug: string, email: string) {
 
     // Send email with attachment
     const { data, error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "HTD Solutions <info@htd.solutions>",
+      from: senderFrom,
       to: [email],
-      subject: `Your free resource: ${doc.title}`,
-      html: generateEmailHtml(doc.title, doc.description),
+      subject: emailSubject,
+      html: emailHtml,
       attachments: [
         {
           filename: doc.fileName,
@@ -109,7 +180,8 @@ export async function submitLeadEmail(slug: string, email: string) {
   }
 }
 
-function generateEmailHtml(title: string, description: string | null): string {
+/** Fallback HTML used when no email template is assigned to a document. */
+function generateDefaultEmailHtml(title: string, description: string | null): string {
   return `
 <!DOCTYPE html>
 <html>
@@ -156,6 +228,53 @@ function generateEmailHtml(title: string, description: string | null): string {
       <p style="color:#374151;font-size:11px;margin-top:8px;">
         You received this because you requested a document from us.
       </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/** Marks an email as delivered when the user clicks "Yes, I got it!". */
+export async function confirmDelivery(resendEmailId: string) {
+  if (!resendEmailId) return { error: "Missing email ID" };
+
+  try {
+    const [send] = await db
+      .select({ status: emailSends.status })
+      .from(emailSends)
+      .where(eq(emailSends.resendEmailId, resendEmailId))
+      .limit(1);
+
+    if (!send) return { error: "Email record not found" };
+
+    // Only update if not already delivered
+    if (send.status !== "delivered") {
+      await db
+        .update(emailSends)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(eq(emailSends.resendEmailId, resendEmailId));
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Confirm delivery error:", error);
+    return { error: "Failed to confirm delivery" };
+  }
+}
+
+/** Wraps simple formatted HTML (from the rich text editor) in a styled email shell. */
+function wrapPlainTextInHtml(bodyHtml: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>p{margin:0;}</style>
+</head>
+<body style="margin:0;padding:0;background-color:#f6f9fc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+    <div style="background-color:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:32px;color:#1a202c;font-size:15px;line-height:1.7;">
+${bodyHtml}
     </div>
   </div>
 </body>

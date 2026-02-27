@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { submitLeadEmail } from "./actions";
+import { submitLeadEmail, confirmDelivery } from "./actions";
 
 type Step = "email" | "confirmation" | "success";
 
@@ -283,7 +283,12 @@ export function LeadCaptureFlow({
         <div className="space-y-3">
           {deliveryStatus !== "failed" && (
             <Button
-              onClick={() => setStep("success")}
+              onClick={async () => {
+                if (emailSendId) {
+                  await confirmDelivery(emailSendId);
+                }
+                setStep("success");
+              }}
               className="w-full bg-htd-green hover:bg-htd-green/90 text-white font-medium"
             >
               <svg

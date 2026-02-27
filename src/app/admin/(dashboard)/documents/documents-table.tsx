@@ -30,6 +30,8 @@ type DocumentWithStats = {
   views: number;
   emailsSent: number;
   delivered: number;
+  senderName: string | null;
+  templateName: string | null;
 };
 
 export function DocumentsTable({
@@ -152,6 +154,18 @@ export function DocumentsTable({
                     <p className="text-muted-foreground text-xs">
                       {doc.fileName} · {formatFileSize(doc.fileSize)}
                     </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {doc.senderName && (
+                        <span className="text-[10px] text-htd-purple-light bg-htd-purple/10 px-1.5 py-0.5 rounded">
+                          📤 {doc.senderName.split(" <")[0]}
+                        </span>
+                      )}
+                      {doc.templateName && (
+                        <span className="text-[10px] text-htd-purple-light bg-htd-purple/10 px-1.5 py-0.5 rounded">
+                          ✉️ {doc.templateName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </TableCell>
@@ -208,6 +222,28 @@ export function DocumentsTable({
                       />
                     </svg>
                   </Button>
+                  <Link href={`/admin/documents/${doc.id}/edit`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-htd-purple-light hover:bg-htd-purple/10"
+                      title="Edit document"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                        />
+                      </svg>
+                    </Button>
+                  </Link>
                   <Button
                     variant="ghost"
                     size="sm"

@@ -17,18 +17,41 @@ CREATE TABLE IF NOT EXISTS admins (
   created_at    TIMESTAMP     NOT NULL DEFAULT NOW()
 );
 
+-- ─── Senders ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS senders (
+  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        VARCHAR(255)  NOT NULL,
+  email       VARCHAR(255)  NOT NULL,
+  created_at  TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+-- ─── Email Templates ─────────────────────────────────────────
+-- Supported placeholders: {{document_title}}, {{document_description}},
+--   {{sender_name}}, {{sender_email}}
+CREATE TABLE IF NOT EXISTS email_templates (
+  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        VARCHAR(255)  NOT NULL,
+  subject     VARCHAR(500)  NOT NULL,
+  body_format VARCHAR(10)   NOT NULL DEFAULT 'html',  -- 'html' or 'text'
+  html_body   TEXT          NOT NULL,
+  created_at  TIMESTAMP     NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
 -- ─── Documents ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS documents (
-  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-  title       VARCHAR(255)  NOT NULL,
-  description TEXT,
-  slug        VARCHAR(255)  NOT NULL UNIQUE,
-  file_key    TEXT          NOT NULL,     -- Cloudflare R2 object key
-  file_name   VARCHAR(255)  NOT NULL,
-  file_type   VARCHAR(100)  NOT NULL,
-  file_size   INTEGER       NOT NULL,     -- size in bytes
-  is_active   BOOLEAN       NOT NULL DEFAULT TRUE,
-  created_at  TIMESTAMP     NOT NULL DEFAULT NOW()
+  id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  title             VARCHAR(255)  NOT NULL,
+  description       TEXT,
+  slug              VARCHAR(255)  NOT NULL UNIQUE,
+  file_key          TEXT          NOT NULL,     -- Cloudflare R2 object key
+  file_name         VARCHAR(255)  NOT NULL,
+  file_type         VARCHAR(100)  NOT NULL,
+  file_size         INTEGER       NOT NULL,     -- size in bytes
+  is_active         BOOLEAN       NOT NULL DEFAULT TRUE,
+  sender_id         UUID          REFERENCES senders(id)         ON DELETE SET NULL,
+  email_template_id UUID          REFERENCES email_templates(id) ON DELETE SET NULL,
+  created_at        TIMESTAMP     NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS documents_slug_idx ON documents (slug);

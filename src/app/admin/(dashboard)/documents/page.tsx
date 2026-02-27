@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { documents, emailSends, documentViews } from "@/db/schema";
+import { documents, emailSends, documentViews, senders, emailTemplates } from "@/db/schema";
 import { eq, sql, count } from "drizzle-orm";
 import { DocumentsTable } from "./documents-table";
 
@@ -27,11 +27,35 @@ async function getDocumentsWithStats() {
           sql`${emailSends.documentId} = ${doc.id} AND ${emailSends.status} = 'delivered'`
         );
 
+      // Fetch sender name
+      let senderName: string | null = null;
+      if (doc.senderId) {
+        const [s] = await db
+          .select({ name: senders.name, email: senders.email })
+          .from(senders)
+          .where(eq(senders.id, doc.senderId))
+          .limit(1);
+        if (s) senderName = `${s.name} <${s.email}>`;
+      }
+
+      // Fetch template name
+      let templateName: string | null = null;
+      if (doc.emailTemplateId) {
+        const [t] = await db
+          .select({ name: emailTemplates.name })
+          .from(emailTemplates)
+          .where(eq(emailTemplates.id, doc.emailTemplateId))
+          .limit(1);
+        if (t) templateName = t.name;
+      }
+
       return {
         ...doc,
         views: viewCount?.count ?? 0,
         emailsSent: sentCount?.count ?? 0,
         delivered: deliveredCount?.count ?? 0,
+        senderName,
+        templateName,
       };
     })
   );
