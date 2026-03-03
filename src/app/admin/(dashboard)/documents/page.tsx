@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { documents, emailSends, documentViews, senders, emailTemplates, posts } from "@/db/schema";
-import { eq, sql, count } from "drizzle-orm";
+import { eq, sql, count, inArray } from "drizzle-orm";
 import { DocumentsTable } from "./documents-table";
 
 export const dynamic = "force-dynamic";
@@ -15,149 +15,127 @@ type PostBreakdown = {
 };
 
 async function getDocumentsWithStats() {
+  // 1. Fetch all documents in one query
   const docs = await db.select().from(documents).orderBy(documents.createdAt);
+  if (docs.length === 0) return [];
 
-  const stats = await Promise.all(
-    docs.map(async (doc) => {
-      const [viewCount] = await db
-        .select({ count: count() })
-        .from(documentViews)
-        .where(eq(documentViews.documentId, doc.id));
+  const docIds = docs.map((d) => d.id);
 
-      const [sentCount] = await db
-        .select({ count: count() })
-        .from(emailSends)
-        .where(eq(emailSends.documentId, doc.id));
+  // 2. Batch-fetch all aggregate stats in parallel (3 queries instead of 3 × N)
+  const [viewCounts, sentCounts, deliveredCounts, allSenders, allTemplates, linkedPosts, viewsByDocPost, sentByDocPost, deliveredByDocPost] = await Promise.all([
+    // Total views per document
+    db.select({ documentId: documentViews.documentId, count: count() })
+      .from(documentViews)
+      .where(inArray(documentViews.documentId, docIds))
+      .groupBy(documentViews.documentId),
 
-      const [deliveredCount] = await db
-        .select({ count: count() })
-        .from(emailSends)
-        .where(
-          sql`${emailSends.documentId} = ${doc.id} AND ${emailSends.status} = 'delivered'`
-        );
+    // Total sends per document
+    db.select({ documentId: emailSends.documentId, count: count() })
+      .from(emailSends)
+      .where(inArray(emailSends.documentId, docIds))
+      .groupBy(emailSends.documentId),
 
-      // Fetch sender name
-      let senderName: string | null = null;
-      if (doc.senderId) {
-        const [s] = await db
-          .select({ name: senders.name, email: senders.email })
-          .from(senders)
-          .where(eq(senders.id, doc.senderId))
-          .limit(1);
-        if (s) senderName = `${s.name} <${s.email}>`;
-      }
+    // Total delivered per document
+    db.select({ documentId: emailSends.documentId, count: count() })
+      .from(emailSends)
+      .where(sql`${emailSends.documentId} IN ${docIds} AND ${emailSends.status} = 'delivered'`)
+      .groupBy(emailSends.documentId),
 
-      // Fetch template name
-      let templateName: string | null = null;
-      if (doc.emailTemplateId) {
-        const [t] = await db
-          .select({ name: emailTemplates.name })
-          .from(emailTemplates)
-          .where(eq(emailTemplates.id, doc.emailTemplateId))
-          .limit(1);
-        if (t) templateName = t.name;
-      }
+    // All senders at once
+    db.select().from(senders),
 
-      // Per-post breakdowns: views
-      const viewsByPost = await db
-        .select({
-          postId: documentViews.postId,
-          count: count(),
-        })
-        .from(documentViews)
-        .where(eq(documentViews.documentId, doc.id))
-        .groupBy(documentViews.postId);
+    // All templates at once
+    db.select().from(emailTemplates),
 
-      // Per-post breakdowns: sent
-      const sentByPost = await db
-        .select({
-          postId: emailSends.postId,
-          count: count(),
-        })
-        .from(emailSends)
-        .where(eq(emailSends.documentId, doc.id))
-        .groupBy(emailSends.postId);
+    // All posts linked to these documents
+    db.select({ id: posts.id, name: posts.name, platform: posts.platform, documentId: posts.documentId })
+      .from(posts)
+      .where(inArray(posts.documentId, docIds)),
 
-      // Per-post breakdowns: delivered
-      const deliveredByPost = await db
-        .select({
-          postId: emailSends.postId,
-          count: count(),
-        })
-        .from(emailSends)
-        .where(
-          sql`${emailSends.documentId} = ${doc.id} AND ${emailSends.status} = 'delivered'`
-        )
-        .groupBy(emailSends.postId);
+    // Views grouped by document + post
+    db.select({ documentId: documentViews.documentId, postId: documentViews.postId, count: count() })
+      .from(documentViews)
+      .where(inArray(documentViews.documentId, docIds))
+      .groupBy(documentViews.documentId, documentViews.postId),
 
-      // Collect all unique postIds from all three queries
-      const allPostIds = new Set<string | null>();
-      viewsByPost.forEach((r) => allPostIds.add(r.postId));
-      sentByPost.forEach((r) => allPostIds.add(r.postId));
-      deliveredByPost.forEach((r) => allPostIds.add(r.postId));
+    // Sends grouped by document + post
+    db.select({ documentId: emailSends.documentId, postId: emailSends.postId, count: count() })
+      .from(emailSends)
+      .where(inArray(emailSends.documentId, docIds))
+      .groupBy(emailSends.documentId, emailSends.postId),
 
-      // Also include all posts linked to this document (even if they have 0 stats)
-      const linkedPosts = await db
-        .select({ id: posts.id, name: posts.name, platform: posts.platform })
-        .from(posts)
-        .where(eq(posts.documentId, doc.id));
+    // Delivered grouped by document + post
+    db.select({ documentId: emailSends.documentId, postId: emailSends.postId, count: count() })
+      .from(emailSends)
+      .where(sql`${emailSends.documentId} IN ${docIds} AND ${emailSends.status} = 'delivered'`)
+      .groupBy(emailSends.documentId, emailSends.postId),
+  ]);
 
-      // Fetch post details
-      const postMap = new Map<string, { name: string; platform: string }>();
-      linkedPosts.forEach((p) => {
-        allPostIds.add(p.id);
-        postMap.set(p.id, { name: p.name, platform: p.platform });
-      });
-      const postIds = [...allPostIds].filter((id): id is string => id !== null);
-      // Fetch any additional post details from stats that aren't already in the map
-      const missingIds = postIds.filter((id) => !postMap.has(id));
-      if (missingIds.length > 0) {
-        const postDetails = await db
-          .select({ id: posts.id, name: posts.name, platform: posts.platform })
-          .from(posts)
-          .where(sql`${posts.id} IN ${missingIds}`);
-        postDetails.forEach((p) =>
-          postMap.set(p.id, { name: p.name, platform: p.platform })
-        );
-      }
+  // Build lookup maps
+  const viewMap = new Map(viewCounts.map((r) => [r.documentId, r.count]));
+  const sentMap = new Map(sentCounts.map((r) => [r.documentId, r.count]));
+  const deliveredMap = new Map(deliveredCounts.map((r) => [r.documentId, r.count]));
+  const senderMap = new Map(allSenders.map((s) => [s.id, `${s.name} <${s.email}>`]));
+  const templateMap = new Map(allTemplates.map((t) => [t.id, t.name]));
 
-      // Build breakdown array
-      const breakdowns: PostBreakdown[] = [...allPostIds].map((pid) => {
-        const v = viewsByPost.find((r) => r.postId === pid);
-        const s = sentByPost.find((r) => r.postId === pid);
-        const d = deliveredByPost.find((r) => r.postId === pid);
-        const postInfo = pid ? postMap.get(pid) : null;
+  // Post details map
+  const postMap = new Map(linkedPosts.map((p) => [p.id, { name: p.name, platform: p.platform, documentId: p.documentId }]));
 
-        return {
-          postId: pid,
-          postName: postInfo?.name ?? "Direct Link",
-          platform: postInfo?.platform ?? "direct",
-          views: v?.count ?? 0,
-          emailsSent: s?.count ?? 0,
-          delivered: d?.count ?? 0,
-        };
-      });
+  // Group breakdowns by document
+  const viewsByDocPostMap = new Map<string, Map<string | null, number>>();
+  viewsByDocPost.forEach((r) => {
+    if (!viewsByDocPostMap.has(r.documentId)) viewsByDocPostMap.set(r.documentId, new Map());
+    viewsByDocPostMap.get(r.documentId)!.set(r.postId, r.count);
+  });
 
-      // Sort: organic last, then by views descending
-      breakdowns.sort((a, b) => {
-        if (a.postId === null) return 1;
-        if (b.postId === null) return -1;
-        return b.views - a.views;
-      });
+  const sentByDocPostMap = new Map<string, Map<string | null, number>>();
+  sentByDocPost.forEach((r) => {
+    if (!sentByDocPostMap.has(r.documentId)) sentByDocPostMap.set(r.documentId, new Map());
+    sentByDocPostMap.get(r.documentId)!.set(r.postId, r.count);
+  });
 
+  const deliveredByDocPostMap = new Map<string, Map<string | null, number>>();
+  deliveredByDocPost.forEach((r) => {
+    if (!deliveredByDocPostMap.has(r.documentId)) deliveredByDocPostMap.set(r.documentId, new Map());
+    deliveredByDocPostMap.get(r.documentId)!.set(r.postId, r.count);
+  });
+
+  return docs.map((doc) => {
+    // Collect all post IDs relevant to this document
+    const allPostIds = new Set<string | null>();
+    viewsByDocPostMap.get(doc.id)?.forEach((_, pid) => allPostIds.add(pid));
+    sentByDocPostMap.get(doc.id)?.forEach((_, pid) => allPostIds.add(pid));
+    deliveredByDocPostMap.get(doc.id)?.forEach((_, pid) => allPostIds.add(pid));
+    linkedPosts.filter((p) => p.documentId === doc.id).forEach((p) => allPostIds.add(p.id));
+
+    const breakdowns: PostBreakdown[] = [...allPostIds].map((pid) => {
+      const postInfo = pid ? postMap.get(pid) : null;
       return {
-        ...doc,
-        views: viewCount?.count ?? 0,
-        emailsSent: sentCount?.count ?? 0,
-        delivered: deliveredCount?.count ?? 0,
-        senderName,
-        templateName,
-        postBreakdowns: breakdowns,
+        postId: pid,
+        postName: postInfo?.name ?? "Direct Link",
+        platform: postInfo?.platform ?? "direct",
+        views: viewsByDocPostMap.get(doc.id)?.get(pid) ?? 0,
+        emailsSent: sentByDocPostMap.get(doc.id)?.get(pid) ?? 0,
+        delivered: deliveredByDocPostMap.get(doc.id)?.get(pid) ?? 0,
       };
-    })
-  );
+    });
 
-  return stats;
+    breakdowns.sort((a, b) => {
+      if (a.postId === null) return 1;
+      if (b.postId === null) return -1;
+      return b.views - a.views;
+    });
+
+    return {
+      ...doc,
+      views: viewMap.get(doc.id) ?? 0,
+      emailsSent: sentMap.get(doc.id) ?? 0,
+      delivered: deliveredMap.get(doc.id) ?? 0,
+      senderName: doc.senderId ? senderMap.get(doc.senderId) ?? null : null,
+      templateName: doc.emailTemplateId ? templateMap.get(doc.emailTemplateId) ?? null : null,
+      postBreakdowns: breakdowns,
+    };
+  });
 }
 
 export default async function DocumentsPage() {

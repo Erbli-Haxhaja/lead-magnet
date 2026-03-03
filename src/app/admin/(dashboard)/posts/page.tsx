@@ -7,27 +7,25 @@ export const dynamic = "force-dynamic";
 
 async function getPostsWithDocuments() {
   const allPosts = await db
-    .select()
+    .select({
+      id: posts.id,
+      documentId: posts.documentId,
+      name: posts.name,
+      platform: posts.platform,
+      postUrl: posts.postUrl,
+      createdAt: posts.createdAt,
+      documentTitle: documents.title,
+      documentSlug: documents.slug,
+    })
     .from(posts)
+    .leftJoin(documents, eq(posts.documentId, documents.id))
     .orderBy(posts.createdAt);
 
-  const enriched = await Promise.all(
-    allPosts.map(async (post) => {
-      const [doc] = await db
-        .select({ title: documents.title, slug: documents.slug })
-        .from(documents)
-        .where(eq(documents.id, post.documentId))
-        .limit(1);
-
-      return {
-        ...post,
-        documentTitle: doc?.title ?? "Unknown Document",
-        documentSlug: doc?.slug ?? "",
-      };
-    })
-  );
-
-  return enriched;
+  return allPosts.map((row) => ({
+    ...row,
+    documentTitle: row.documentTitle ?? "Unknown Document",
+    documentSlug: row.documentSlug ?? "",
+  }));
 }
 
 export default async function PostsPage() {

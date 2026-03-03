@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -68,13 +69,59 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
+  // Close sidebar on Escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setSidebarOpen(false);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0a0e1a] flex">
+      {/* Mobile top bar */}
+      <div className="fixed top-0 left-0 right-0 z-30 flex items-center gap-3 bg-[#0f1320] border-b border-htd-card-border px-4 py-3 lg:hidden">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="text-muted-foreground hover:text-white p-1 -ml-1"
+          aria-label="Open menu"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <img src="/htd_logo.png" alt="HTD Solutions" className="w-7 h-7 rounded-md object-contain" />
+        <p className="text-xs text-htd-purple-light font-semibold tracking-wider uppercase">
+          HTD Solutions
+        </p>
+      </div>
+
+      {/* Overlay (mobile only) */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-[#0f1320] border-r border-htd-card-border flex flex-col fixed h-full z-20">
+      <aside
+        className={cn(
+          "w-64 bg-[#0f1320] border-r border-htd-card-border flex flex-col fixed h-full z-40 transition-transform duration-300 ease-in-out",
+          "lg:translate-x-0",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
         {/* Logo */}
-        <div className="p-6 border-b border-htd-card-border">
+        <div className="p-6 border-b border-htd-card-border flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/htd_logo.png" alt="HTD Solutions" className="w-9 h-9 rounded-lg object-contain" />
             <div>
@@ -86,10 +133,20 @@ export default function AdminLayout({
               </p>
             </div>
           </div>
+          {/* Close button (mobile only) */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="text-muted-foreground hover:text-white p-1 lg:hidden"
+            aria-label="Close menu"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -125,8 +182,8 @@ export default function AdminLayout({
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 ml-64">
-        <div className="p-8">{children}</div>
+      <main className="flex-1 lg:ml-64">
+        <div className="p-4 pt-18 sm:p-6 sm:pt-20 lg:p-8 lg:pt-8">{children}</div>
       </main>
     </div>
   );
