@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -12,10 +12,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { toggleDocumentActive, deleteDocument } from "../actions";
+import { toggleDocumentActive, deleteDocument, resetDocumentStats } from "../actions";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+type PostBreakdown = {
+  postId: string | null;
+  postName: string;
+  platform: string;
+  views: number;
+  emailsSent: number;
+  delivered: number;
+};
 
 type DocumentWithStats = {
   id: string;
@@ -32,6 +41,48 @@ type DocumentWithStats = {
   delivered: number;
   senderName: string | null;
   templateName: string | null;
+  postBreakdowns: PostBreakdown[];
+};
+
+const PLATFORM_CONFIG: Record<
+  string,
+  { label: string; color: string; bg: string }
+> = {
+  linkedin: {
+    label: "LinkedIn",
+    color: "text-blue-400",
+    bg: "bg-blue-500/10 border-blue-500/30",
+  },
+  tiktok: {
+    label: "TikTok",
+    color: "text-pink-400",
+    bg: "bg-pink-500/10 border-pink-500/30",
+  },
+  instagram: {
+    label: "Instagram",
+    color: "text-purple-400",
+    bg: "bg-purple-500/10 border-purple-500/30",
+  },
+  facebook: {
+    label: "Facebook",
+    color: "text-blue-300",
+    bg: "bg-blue-400/10 border-blue-400/30",
+  },
+  x: {
+    label: "X",
+    color: "text-gray-300",
+    bg: "bg-gray-500/10 border-gray-500/30",
+  },
+  youtube: {
+    label: "YouTube",
+    color: "text-red-400",
+    bg: "bg-red-500/10 border-red-500/30",
+  },
+  direct: {
+    label: "Direct Link",
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/10 border-emerald-500/30",
+  },
 };
 
 export function DocumentsTable({
@@ -41,6 +92,7 @@ export function DocumentsTable({
 }) {
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function formatFileSize(bytes: number): string {
     if (bytes < 1024) return bytes + " B";
@@ -79,6 +131,25 @@ export function DocumentsTable({
       toast.error(result.error);
     } else {
       toast.success("Document deleted");
+      router.refresh();
+    }
+    setLoadingId(null);
+  }
+
+  async function handleReset(id: string, title: string) {
+    if (
+      !confirm(
+        `Are you sure you want to reset all statistics for "${title}"?\n\nThis will delete all views, email sends, and leads associated with this document. This action cannot be undone.`
+      )
+    )
+      return;
+
+    setLoadingId(id);
+    const result = await resetDocumentStats(id);
+    if (result.error) {
+      toast.error(result.error);
+    } else {
+      toast.success("Statistics reset successfully");
       router.refresh();
     }
     setLoadingId(null);
@@ -140,6 +211,7 @@ export function DocumentsTable({
         </TableHeader>
         <TableBody>
           {documents.map((doc) => (
+            <Fragment key={doc.id}>
             <TableRow
               key={doc.id}
               className="border-htd-card-border hover:bg-white/[0.02]"
@@ -170,7 +242,23 @@ export function DocumentsTable({
                 </div>
               </TableCell>
               <TableCell>
-                <span className="text-white font-medium">{doc.views}</span>
+                <button
+                  onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
+                  className="text-white font-medium hover:text-htd-purple-light transition-colors flex items-center gap-1.5"
+                  title={doc.postBreakdowns.length > 0 ? "Click to see per-post breakdown" : undefined}
+                >
+                  {doc.views}
+                  {doc.postBreakdowns.length > 0 && (
+                    <svg
+                      className={`w-3 h-3 text-muted-foreground transition-transform ${expandedId === doc.id ? "rotate-180" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  )}
+                </button>
               </TableCell>
               <TableCell>
                 <span className="text-white font-medium">
@@ -247,6 +335,28 @@ export function DocumentsTable({
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => handleReset(doc.id, doc.title)}
+                    disabled={loadingId === doc.id}
+                    className="text-muted-foreground hover:text-orange-400 hover:bg-orange-500/10"
+                    title="Reset statistics"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleDelete(doc.id, doc.title)}
                     disabled={loadingId === doc.id}
                     className="text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
@@ -269,6 +379,49 @@ export function DocumentsTable({
                 </div>
               </TableCell>
             </TableRow>
+            {/* Per-post breakdown rows */}
+            {expandedId === doc.id && doc.postBreakdowns.length > 0 && (
+              <TableRow className="border-htd-card-border bg-[#0a0e1a]/50 hover:bg-[#0a0e1a]/50">
+                <TableCell colSpan={6} className="p-0">
+                  <div className="px-6 py-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Per-Post Breakdown</p>
+                    <div className="space-y-1.5">
+                      {doc.postBreakdowns.map((bp, idx) => {
+                        const pConfig = PLATFORM_CONFIG[bp.platform] || PLATFORM_CONFIG.organic;
+                        return (
+                          <div
+                            key={bp.postId ?? `organic-${idx}`}
+                            className="flex items-center gap-4 text-sm py-1.5 px-3 rounded-lg bg-htd-card/50"
+                          >
+                            <Badge
+                              variant="outline"
+                              className={`${pConfig.bg} ${pConfig.color} text-[10px] min-w-[80px] justify-center`}
+                            >
+                              {pConfig.label}
+                            </Badge>
+                            <span className="text-white text-xs font-medium flex-1 truncate">
+                              {bp.postName}
+                            </span>
+                            <div className="flex items-center gap-6 text-xs">
+                              <span className="text-muted-foreground">
+                                <span className="text-white font-medium">{bp.views}</span> views
+                              </span>
+                              <span className="text-muted-foreground">
+                                <span className="text-white font-medium">{bp.emailsSent}</span> sent
+                              </span>
+                              <span className="text-muted-foreground">
+                                <span className="text-htd-green font-medium">{bp.delivered}</span> delivered
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
+            </Fragment>
           ))}
         </TableBody>
       </Table>

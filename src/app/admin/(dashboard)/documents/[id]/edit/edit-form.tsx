@@ -213,6 +213,27 @@ export function EditDocumentForm({
                   {formatFileSize(doc.fileSize)} · Current file
                 </p>
               </div>
+              <a
+                href={`/api/admin/documents/${doc.id}/download`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Download current file"
+                className="shrink-0 w-8 h-8 rounded-lg border border-htd-card-border flex items-center justify-center text-muted-foreground hover:text-htd-purple-light hover:border-htd-purple/40 hover:bg-htd-purple/5 transition-all"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
+                </svg>
+              </a>
             </div>
 
             {/* Drop zone for replacement */}

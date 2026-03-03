@@ -48,7 +48,7 @@ function replacePlaceholders(
     .replace(/\{\{sender_email\}\}/g, vars.senderEmail);
 }
 
-export async function submitLeadEmail(slug: string, email: string) {
+export async function submitLeadEmail(slug: string, email: string, postId: string | null = null) {
   // Simple regex validation
   if (!email || !EMAIL_REGEX.test(email)) {
     return { error: "Please enter a valid email address" };
@@ -128,6 +128,7 @@ export async function submitLeadEmail(slug: string, email: string) {
       .values({
         email,
         source: slug,
+        postId,
       })
       .returning();
 
@@ -166,6 +167,7 @@ export async function submitLeadEmail(slug: string, email: string) {
     await db.insert(emailSends).values({
       documentId: doc.id,
       leadId: lead.id,
+      postId,
       resendEmailId: data?.id || null,
       status: "sent",
     });

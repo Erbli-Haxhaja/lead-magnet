@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { documents, senders, emailTemplates, leads } from "@/db/schema";
+import { documents, senders, emailTemplates, leads, posts, emailSends, documentViews } from "@/db/schema";
 import { uploadToR2, deleteFromR2 } from "@/lib/r2";
 import { auth } from "@/lib/auth";
 import { eq, inArray } from "drizzle-orm";
@@ -99,6 +99,36 @@ export async function deleteDocument(id: string) {
   } catch (error) {
     console.error("Delete error:", error);
     return { error: "Failed to delete document" };
+  }
+}
+
+export async function resetDocumentStats(id: string) {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  try {
+    // Get the document slug to find associated leads
+    const [doc] = await db
+      .select({ slug: documents.slug })
+      .from(documents)
+      .where(eq(documents.id, id))
+      .limit(1);
+
+    if (!doc) return { error: "Document not found" };
+
+    // Delete email sends for this document
+    await db.delete(emailSends).where(eq(emailSends.documentId, id));
+
+    // Delete document views for this document
+    await db.delete(documentViews).where(eq(documentViews.documentId, id));
+
+    // Delete leads captured from this document
+    await db.delete(leads).where(eq(leads.source, doc.slug));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Reset stats error:", error);
+    return { error: "Failed to reset document statistics" };
   }
 }
 
@@ -319,5 +349,127 @@ export async function deleteLeads(ids: string[]) {
   } catch (error) {
     console.error("Delete leads error:", error);
     return { error: "Failed to delete leads" };
+  }
+}
+
+// ─── Post Actions ────────────────────────────────────────────
+
+const VALID_PLATFORMS = ["linkedin", "tiktok", "instagram", "facebook", "x", "youtube"] as const;
+
+export async function createPost(formData: FormData) {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  const name = formData.get("name") as string;
+  const platform = formData.get("platform") as string;
+  const postUrl = formData.get("postUrl") as string;
+  const documentId = formData.get("documentId") as string;
+
+  if (!name || !platform || !postUrl || !documentId) {
+    return { error: "All fields are required" };
+  }
+
+  if (!VALID_PLATFORMS.includes(platform as (typeof VALID_PLATFORMS)[number])) {
+    return { error: "Invalid platform" };
+  }
+
+  try {
+    const [post] = await db
+      .insert(posts)
+      .values({ name, platform, postUrl, documentId })
+      .returning();
+    return { success: true, post };
+  } catch (error) {
+    console.error("Create post error:", error);
+    return { error: "Failed to create post" };
+  }
+}
+
+export async function updatePost(id: string, formData: FormData) {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  const name = formData.get("name") as string;
+  const platform = formData.get("platform") as string;
+  const postUrl = formData.get("postUrl") as string;
+  const documentId = formData.get("documentId") as string;
+
+  if (!name || !platform || !postUrl || !documentId) {
+    return { error: "All fields are required" };
+  }
+
+  if (!VALID_PLATFORMS.includes(platform as (typeof VALID_PLATFORMS)[number])) {
+    return { error: "Invalid platform" };
+  }
+
+  try {
+    const [post] = await db
+      .update(posts)
+      .set({ name, platform, postUrl, documentId })
+      .where(eq(posts.id, id))
+      .returning();
+    return { success: true, post };
+  } catch (error) {
+    console.error("Update post error:", error);
+    return { error: "Failed to update post" };
+  }
+}
+
+export async function resetPostStats(id: string) {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  try {
+    // Verify the post exists
+    const [post] = await db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(eq(posts.id, id))
+      .limit(1);
+
+    if (!post) return { error: "Post not found" };
+
+    // Delete email sends tracked to this post
+    await db.delete(emailSends).where(eq(emailSends.postId, id));
+
+    // Delete document views tracked to this post
+    await db.delete(documentViews).where(eq(documentViews.postId, id));
+
+    // Delete leads captured from this post
+    await db.delete(leads).where(eq(leads.postId, id));
+
+    return { success: true };
+  } catch (error) {
+    console.error("Reset post stats error:", error);
+    return { error: "Failed to reset post statistics" };
+  }
+}
+
+export async function deletePost(id: string) {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  try {
+    await db.delete(posts).where(eq(posts.id, id));
+    return { success: true };
+  } catch (error) {
+    console.error("Delete post error:", error);
+    return { error: "Failed to delete post" };
+  }
+}
+
+export async function getDocumentsList() {
+  const session = await auth();
+  if (!session) return { error: "Unauthorized" };
+
+  try {
+    const data = await db
+      .select({ id: documents.id, title: documents.title })
+      .from(documents)
+      .orderBy(documents.title);
+    return { data };
+  } catch (error) {
+    console.error("Get documents list error:", error);
+    return { error: "Failed to load documents" };
   }
 }

@@ -4,12 +4,23 @@ import { auth } from "@/lib/auth";
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
-  // Protect all /admin routes except /admin/login
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+  if (pathname.startsWith("/admin")) {
+    if (pathname === "/admin/login") {
+      // Already logged in → skip login page, go to dashboard
+      if (req.auth) {
+        return NextResponse.redirect(new URL("/admin/documents", req.url));
+      }
+      // Not logged in → require gate cookie to see the login page
+      const gateCookie = req.cookies.get("htd-admin-gate");
+      if (!gateCookie) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
+      return NextResponse.next();
+    }
+
+    // All other /admin routes → require authentication
     if (!req.auth) {
-      const loginUrl = new URL("/admin/login", req.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
+      return NextResponse.redirect(new URL("/", req.url));
     }
   }
 

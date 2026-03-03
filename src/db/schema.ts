@@ -68,6 +68,7 @@ export const leads = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     email: varchar("email", { length: 255 }).notNull(),
     source: varchar("source", { length: 255 }), // slug of the document
+    postId: uuid("post_id").references(() => posts.id, { onDelete: "set null" }),
     capturedAt: timestamp("captured_at").defaultNow().notNull(),
   },
   (table) => [index("leads_email_idx").on(table.email)]
@@ -84,6 +85,7 @@ export const emailSends = pgTable(
     leadId: uuid("lead_id")
       .notNull()
       .references(() => leads.id, { onDelete: "cascade" }),
+    postId: uuid("post_id").references(() => posts.id, { onDelete: "set null" }),
     resendEmailId: varchar("resend_email_id", { length: 255 }),
     status: varchar("status", { length: 50 }).default("pending").notNull(),
     sentAt: timestamp("sent_at").defaultNow().notNull(),
@@ -103,10 +105,27 @@ export const documentViews = pgTable(
     documentId: uuid("document_id")
       .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
+    postId: uuid("post_id").references(() => posts.id, { onDelete: "set null" }),
     viewedAt: timestamp("viewed_at").defaultNow().notNull(),
     ipAddress: varchar("ip_address", { length: 45 }),
   },
   (table) => [index("document_views_document_idx").on(table.documentId)]
+);
+
+// ─── Posts (social media promotions) ─────────────────────────
+export const posts = pgTable(
+  "posts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    platform: varchar("platform", { length: 50 }).notNull(), // 'linkedin' | 'tiktok' | 'instagram' | 'facebook' | 'x' | 'youtube'
+    postUrl: text("post_url").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("posts_document_idx").on(table.documentId)]
 );
 
 // ─── Types ───────────────────────────────────────────────────
@@ -123,3 +142,5 @@ export type NewLead = typeof leads.$inferInsert;
 export type EmailSend = typeof emailSends.$inferSelect;
 export type NewEmailSend = typeof emailSends.$inferInsert;
 export type DocumentView = typeof documentViews.$inferSelect;
+export type Post = typeof posts.$inferSelect;
+export type NewPost = typeof posts.$inferInsert;

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS leads (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   email       VARCHAR(255)  NOT NULL,
   source      VARCHAR(255),               -- slug of the originating document
+  post_id     UUID          REFERENCES posts(id) ON DELETE SET NULL,
   captured_at TIMESTAMP     NOT NULL DEFAULT NOW()
 );
 
@@ -71,6 +72,7 @@ CREATE TABLE IF NOT EXISTS email_sends (
   id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id     UUID          NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   lead_id         UUID          NOT NULL REFERENCES leads(id)     ON DELETE CASCADE,
+  post_id         UUID          REFERENCES posts(id) ON DELETE SET NULL,
   resend_email_id VARCHAR(255),            -- ID returned by the Resend API
   status          VARCHAR(50)   NOT NULL DEFAULT 'pending',
   sent_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
@@ -84,8 +86,21 @@ CREATE INDEX IF NOT EXISTS email_sends_resend_id_idx  ON email_sends (resend_ema
 CREATE TABLE IF NOT EXISTS document_views (
   id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id UUID          NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  post_id     UUID          REFERENCES posts(id) ON DELETE SET NULL,
   viewed_at   TIMESTAMP     NOT NULL DEFAULT NOW(),
   ip_address  VARCHAR(45)
 );
 
 CREATE INDEX IF NOT EXISTS document_views_document_idx ON document_views (document_id);
+
+-- ─── Posts (social media promotions) ─────────────────────────
+CREATE TABLE IF NOT EXISTS posts (
+  id            UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id   UUID          NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  name          VARCHAR(255)  NOT NULL,
+  platform      VARCHAR(50)   NOT NULL,  -- 'linkedin','tiktok','instagram','facebook','x','youtube'
+  post_url      TEXT          NOT NULL,
+  created_at    TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS posts_document_idx ON posts (document_id);

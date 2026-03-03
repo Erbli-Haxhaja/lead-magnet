@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HTD Solutions - Lead Magnet",
+  title: "Lead Magnets - HTD Solutions",
   description: "Free resources by HTD Solutions",
 };
 

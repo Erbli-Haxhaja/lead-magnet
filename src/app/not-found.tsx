@@ -1,6 +1,3 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-
 export default function NotFound() {
   return (
     <div className="min-h-screen bg-[#0a0e1a] flex items-center justify-center px-4">
@@ -32,12 +29,6 @@ export default function NotFound() {
           This document may have been removed or the link might be incorrect.
           Please check the URL and try again.
         </p>
-
-        <Link href="/">
-          <Button className="bg-htd-purple hover:bg-htd-purple-dark text-white">
-            Go Home
-          </Button>
-        </Link>
       </div>
     </div>
   );
